@@ -42,3 +42,7 @@ next-env.d.ts
 
 # tracker
 /data/
+
+# sessão do worker do WhatsApp
+/.wwebjs_auth/
+/.wwebjs_cache/

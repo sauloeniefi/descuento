@@ -12,7 +12,8 @@
     "db:up": "docker compose up -d --wait db",
     "db:down": "docker compose down",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
-    "db:import": "node --env-file-if-exists=.env.local scripts/import-sqlite.mjs"
+    "db:import": "node --env-file-if-exists=.env.local scripts/import-sqlite.mjs",
+    "whatsapp": "node --env-file-if-exists=.env.local scripts/whatsapp-worker.mjs"
   },
   "dependencies": {
     "next": "16.3.5",

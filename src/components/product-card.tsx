@@ -1,6 +1,7 @@
 import type { TrackedProduct } from "@/lib/tracker/service";
+import { levelLabel, WINDOW_DAYS, type PriceLevel } from "@/lib/tracker/price-level";
 import type { Category } from "@/lib/tracker/categories";
-import { removeProductAction, setAffiliateAction, setImageIndexAction, setShortNameAction } from "@/app/actions";
+import { removeProductAction, setAffiliateAction, setImageIndexAction, setShortNameAction, setTargetAction } from "@/app/actions";
 import { brl, inputClass } from "@/lib/ui";
 import { CategorySelect } from "./category-select";
 import { ShareButton } from "./share-button";
@@ -15,11 +16,21 @@ const tones = {
   red: "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300",
 };
 
-function priceTone(price: number | null, target: number | null): keyof typeof tones {
-  if (price == null || target == null) return "neutral";
-  if (price <= target) return "green";
-  if (price <= target * 1.1) return "yellow";
-  return "red";
+const levelTones: Record<PriceLevel, keyof typeof tones> = {
+  otimo: "green",
+  bom: "green",
+  normal: "neutral",
+  caro: "red",
+};
+
+function priceTone(p: TrackedProduct): keyof typeof tones {
+  if (p.currentPrice == null) return "neutral";
+  if (p.targetPrice != null) {
+    if (p.currentPrice <= p.targetPrice) return "green";
+    if (p.currentPrice <= p.targetPrice * 1.1) return "yellow";
+    return "red";
+  }
+  return p.level ? levelTones[p.level] : "neutral";
 }
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: keyof typeof tones }) {
@@ -44,6 +55,9 @@ export function ProductCard({ product: p, categories }: { product: TrackedProduc
   const message = [categories.find((c) => c.id === p.categoryId)?.message, p.shortName ?? p.title, p.affiliateUrl ?? p.url]
     .filter(Boolean)
     .join("\n\n");
+  const minAt = p.minPriceAt
+    ? new Date(p.minPriceAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
+    : null;
   const checkedAt = p.lastCheckedAt
     ? new Date(p.lastCheckedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
     : null;
@@ -58,11 +72,29 @@ export function ProductCard({ product: p, categories }: { product: TrackedProduc
           )}
         </div>
         <div className="min-w-0 flex-1">
-          {p.opportunity && (
-            <span className="mb-1 inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800 dark:bg-green-900/40 dark:text-green-300">
-              {p.opportunity}
-            </span>
-          )}
+          <div className="mb-1 flex flex-wrap gap-1">
+            {p.opportunity && (
+              <span className="inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                {p.opportunity}
+              </span>
+            )}
+            {p.currentOriginalPrice != null && p.currentPrice != null && p.currentOriginalPrice > p.currentPrice && (
+              <span
+                title={`Preço "de" do anúncio: ${brl(p.currentOriginalPrice)}`}
+                className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+              >
+                Anúncio {Math.round((1 - p.currentPrice / p.currentOriginalPrice) * 100)}% OFF
+              </span>
+            )}
+            {p.level && p.percentile != null && (
+              <span
+                title={`Mais barato que ${Math.round((1 - p.percentile) * 100)}% das coletas dos últimos ${WINDOW_DAYS} dias`}
+                className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${tones[levelTones[p.level]]}`}
+              >
+                Preço {levelLabel[p.level].toLowerCase()}
+              </span>
+            )}
+          </div>
           <a
             href={p.url}
             target="_blank"
@@ -79,11 +111,27 @@ export function ProductCard({ product: p, categories }: { product: TrackedProduc
       </div>
 
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="Atual" value={brl(p.currentPrice)} tone={priceTone(p.currentPrice, p.targetPrice)} />
-        <Stat label="Mínimo" value={brl(p.minPrice)} />
+        <Stat label="Atual" value={brl(p.currentPrice)} tone={priceTone(p)} />
+        <Stat label={minAt ? `Mínimo (${minAt})` : "Mínimo"} value={brl(p.minPrice)} />
         <Stat label="Média" value={brl(p.avgPrice)} />
         <Stat label="Alvo" value={brl(p.targetPrice)} />
       </dl>
+
+      {p.targetWarning && <p className="-mt-2 text-xs text-amber-700 dark:text-amber-400">{p.targetWarning}</p>}
+      {p.suggestedTarget != null && (p.targetPrice == null || p.targetWarning) && (
+        <div className="-mt-2 text-xs text-zinc-500">
+          Alvo sugerido pelo histórico: <span className="font-semibold">{brl(p.suggestedTarget)}</span> — 25% das coletas dos
+          últimos {WINDOW_DAYS} dias ficaram nesse valor ou abaixo.{" "}
+          <form action={setTargetAction} className="inline">
+            <input type="hidden" name="id" value={p.id} />
+            <input type="hidden" name="target" value={p.suggestedTarget} />
+            <button className="font-medium text-yellow-700 underline hover:text-yellow-800 dark:text-yellow-500">Usar</button>
+          </form>
+        </div>
+      )}
+      {p.level == null && p.samples > 0 && (
+        <p className="-mt-2 text-xs text-zinc-500">Poucas coletas para classificar o preço — o histórico ainda está curto.</p>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Nome reduzido">
@@ -98,11 +146,24 @@ export function ProductCard({ product: p, categories }: { product: TrackedProduc
         </Field>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-[1fr_11rem]">
+      <div className="grid gap-3 sm:grid-cols-[1fr_9rem_9rem]">
         <Field label="Link de afiliado">
           <form action={setAffiliateAction} className="flex gap-2">
             <input type="hidden" name="id" value={p.id} />
             <input name="url" defaultValue={p.affiliateUrl ?? ""} placeholder="https://meli.la/..." className={inputClass} />
+            <button className={saveButton}>Salvar</button>
+          </form>
+        </Field>
+        <Field label="Preço-alvo (R$)">
+          <form action={setTargetAction} className="flex gap-2">
+            <input type="hidden" name="id" value={p.id} />
+            <input
+              name="target"
+              defaultValue={p.targetPrice ?? ""}
+              placeholder="Vazio = sem alvo"
+              inputMode="decimal"
+              className={inputClass}
+            />
             <button className={saveButton}>Salvar</button>
           </form>
         </Field>

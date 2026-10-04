@@ -1,0 +1,113 @@
+#descuento-botao {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483000;
+  padding: 12px 18px;
+  border: none;
+  border-radius: 999px;
+  background: #facc15;
+  color: #18181b;
+  font: 600 14px/1.2 system-ui, sans-serif;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+#descuento-botao:hover { background: #eab308; }
+
+#descuento-painel {
+  position: fixed;
+  right: 20px;
+  bottom: 74px;
+  z-index: 2147483000;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  max-height: min(70vh, 640px);
+  border-radius: 14px;
+  background: #18181b;
+  color: #fafafa;
+  font: 400 13px/1.4 system-ui, sans-serif;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+#descuento-painel .dc-cabecalho {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: #27272a;
+}
+#descuento-painel .dc-contagem { flex: 1; color: #a1a1aa; font-size: 12px; }
+#descuento-painel .dc-icone {
+  border: none;
+  background: transparent;
+  color: #a1a1aa;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+#descuento-painel .dc-icone:hover { color: #fafafa; }
+
+#descuento-painel .dc-config {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #3f3f46;
+}
+#descuento-painel .dc-config label { display: flex; align-items: center; gap: 6px; color: #d4d4d8; }
+#descuento-painel select {
+  flex: 1;
+  padding: 5px 6px;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: #27272a;
+  color: #fafafa;
+  font: inherit;
+}
+#descuento-painel .dc-todos { white-space: nowrap; }
+
+#descuento-painel #dc-itens { flex: 1; overflow-y: auto; }
+#descuento-painel .dc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #27272a;
+  cursor: pointer;
+}
+#descuento-painel .dc-item:hover { background: #27272a; }
+#descuento-painel .dc-item--off { opacity: 0.45; cursor: default; }
+#descuento-painel .dc-item img,
+#descuento-painel .dc-sem-img {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: #27272a;
+  object-fit: contain;
+}
+#descuento-painel .dc-texto { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#descuento-painel .dc-titulo {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+#descuento-painel .dc-preco { color: #a1a1aa; font-size: 12px; }
+#descuento-painel .dc-resultado { color: #22c55e; font-size: 11px; white-space: nowrap; }
+
+#descuento-painel .dc-rodape { padding: 12px 14px; border-top: 1px solid #3f3f46; }
+#descuento-painel #dc-enviar {
+  width: 100%;
+  padding: 9px;
+  border: none;
+  border-radius: 8px;
+  background: #facc15;
+  color: #18181b;
+  font: 600 14px system-ui;
+  cursor: pointer;
+}
+#descuento-painel #dc-enviar:disabled { opacity: 0.5; cursor: default; }
+#descuento-painel #dc-status { margin: 8px 0 0; color: #a1a1aa; font-size: 12px; }

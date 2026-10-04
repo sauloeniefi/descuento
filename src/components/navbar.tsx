@@ -7,7 +7,11 @@ import { logoutAction } from "@/app/auth-actions";
 const links = [
   { href: "/", label: "Rastreador" },
   { href: "/categorias", label: "Categorias" },
+  { href: "/produtos", label: "Produtos" },
+  { href: "/sugestoes", label: "Sugestões" },
   { href: "/cupons", label: "Cupons" },
+  { href: "/automacao", label: "Automação" },
+  { href: "/extensao", label: "Extensão" },
 ];
 
 export function Navbar({ username }: { username: string | null }) {

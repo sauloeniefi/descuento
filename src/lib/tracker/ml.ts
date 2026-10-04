@@ -91,6 +91,8 @@ export interface MlSearchResult {
   title: string;
   url: string;
   price: number;
+  /** Preço "de" da melhor oferta, quando o anúncio está com desconto. */
+  originalPrice: number | null;
 }
 
 export async function searchProducts(query: string, limit = 12): Promise<MlSearchResult[]> {
@@ -100,11 +102,36 @@ export async function searchProducts(query: string, limit = 12): Promise<MlSearc
   // Muitos produtos de catálogo não têm oferta ativa (404); só listamos os que têm preço.
   const priced = await Promise.allSettled(
     (data.results ?? []).map(async (r): Promise<MlSearchResult> => {
-      const offers = await mlGet<{ results: { price: number; condition: string }[] }>(`/products/${r.id}/items`);
-      const prices = offers.results.filter((o) => o.condition === "new").map((o) => o.price);
-      if (prices.length === 0) throw new Error("sem oferta");
-      return { mlId: r.id, title: r.name, url: `https://www.mercadolivre.com.br/p/${r.id}`, price: Math.min(...prices) };
+      const offers = await mlGet<{ results: { price: number; original_price: number | null; condition: string }[] }>(
+        `/products/${r.id}/items`,
+      );
+      const news = offers.results.filter((o) => o.condition === "new");
+      if (news.length === 0) throw new Error("sem oferta");
+      const best = news.reduce((a, b) => (b.price < a.price ? b : a));
+      return {
+        mlId: r.id,
+        title: r.name,
+        url: `https://www.mercadolivre.com.br/p/${r.id}`,
+        price: best.price,
+        originalPrice: best.original_price,
+      };
     }),
   );
   return priced.flatMap((p) => (p.status === "fulfilled" ? [p.value] : []));
+}
+
+const STOPWORDS = new Set(["de", "da", "do", "com", "para", "por", "e", "em", "a", "o", "as", "os", "un", "kit", "novo", "nova"]);
+
+/**
+ * Palavras-chave de um título, para procurar produtos parecidos.
+ * Ex.: "Fone de Ouvido Bluetooth JBL Tune 510BT Preto" -> "fone ouvido bluetooth jbl".
+ */
+export function keywordsFromTitle(title: string, words = 4): string {
+  return title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w))
+    .slice(0, words)
+    .join(" ");
 }

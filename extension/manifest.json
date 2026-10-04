@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Descuento — rastrear produto",
+  "version": "1.1.0",
+  "description": "Coleta produtos do Mercado Livre e envia para as suas listas do Descuento.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.mercadolivre.com.br/*",
+    "http://localhost/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.mercadolivre.com.br/*",
+        "https://*.mercadolibre.com/*"
+      ],
+      "js": [
+        "scanner.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,7 +1,17 @@
 import { requireUser } from "@/lib/auth";
 import { listCategories } from "@/lib/tracker/categories";
-import { listCampaigns, listGroups, listQueue } from "@/lib/automation/campaigns";
-import { createCampaignAction, deleteCampaignAction, enqueueNowAction, toggleCampaignAction } from "../actions";
+import { listCampaigns, listGroups, listLatestQrCode, listQueue, listSyncStatus } from "@/lib/automation/campaigns";
+import { SyncStatusBadge } from "@/components/sync-status-badge";
+import { GenerateQrButton } from "@/components/generate-qr-button";
+import { QrCodeRefresh } from "@/components/qr-code-refresh";
+import {
+  createCampaignAction,
+  deleteCampaignAction,
+  enqueueNowAction,
+  startDevModeAction,
+  syncGroupsAction,
+  toggleCampaignAction,
+} from "../actions";
 import { inputClass } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -17,15 +27,17 @@ const statusTone: Record<string, string> = {
 export default async function Automacao({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; enfileirados?: string }>;
+  searchParams: Promise<{ error?: string; enfileirados?: string; sincronizado?: string; qr?: string; dev?: string; devError?: string }>;
 }) {
   const user = await requireUser();
-  const { error, enfileirados } = await searchParams;
-  const [groups, campaigns, categories, queue] = await Promise.all([
+  const { error, enfileirados, sincronizado, qr, dev, devError } = await searchParams;
+  const [groups, campaigns, categories, queue, latestQrCode, syncStatus] = await Promise.all([
     listGroups(user.id),
     listCampaigns(user.id),
     listCategories(user.id),
     listQueue(user.id),
+    listLatestQrCode(user.id),
+    listSyncStatus(user.id),
   ]);
   const hoje = new Date().toISOString().slice(0, 10);
 
@@ -35,10 +47,16 @@ export default async function Automacao({
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">Automação de envio</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Cada campanha manda promoções de uma categoria para um grupo de WhatsApp, nos dias e horários que você definir.
-          O site monta a fila; quem envia é o worker (<code>npm run whatsapp</code>). Só aparecem os grupos em que você é
+          O site monta a fila; o serviço do WhatsApp envia as mensagens. Só aparecem os grupos em que você é
           administrador — nos outros o WhatsApp recusa o envio.
         </p>
       </div>
+
+      {syncStatus?.error && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+          Erro ao sincronizar grupos: {syncStatus.error}
+        </p>
+      )}
 
       {error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</p>
@@ -48,14 +66,78 @@ export default async function Automacao({
           {enfileirados} {enfileirados === "1" ? "envio criado" : "envios criados"} na fila.
         </p>
       )}
+      {dev && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          Modo dev iniciado: {dev} {dev === "1" ? "produto na fila" : "produtos na fila"}, um por minuto para o grupo escolhido. O limite de 12 envios por hora continua ativo.
+        </p>
+      )}
+      {devError && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{devError}</p>
+      )}
+      {sincronizado && (
+        <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+          Solicitação de sincronização enviada. O worker vai atualizar os grupos em breve.
+        </p>
+      )}
+      {qr && (
+        <p className="rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+          Solicitação enviada. Aguardando o novo QR Code do WhatsApp...
+        </p>
+      )}
+      <QrCodeRefresh active={Boolean(qr) && !latestQrCode} />
 
       <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="text-sm font-semibold">Nova campanha</h2>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold">WhatsApp</h2>
+            <SyncStatusBadge syncStatus={syncStatus?.status ?? null} />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <GenerateQrButton hasExistingQr={Boolean(latestQrCode)} />
+            <form action={syncGroupsAction}>
+              <button className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800">
+                Sincronizar grupos
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {latestQrCode ? (
+          <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">QR Code atual</p>
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(latestQrCode)}`}
+              alt="QR Code do WhatsApp"
+              className="h-52 w-52 rounded-lg bg-white p-2 shadow-sm"
+            />
+          </div>
+        ) : (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            Ainda não há QR gerado. Clique em “Gerar QR Code” para abrir a conexão do WhatsApp.
+          </p>
+        )}
+
+        {groups.length > 0 && (
+          <form action={startDevModeAction} className="mt-4 flex flex-wrap items-end gap-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            <label className="min-w-56 flex-1 space-y-1">
+              <span className="text-xs font-medium text-zinc-500">Grupo para testar todos os produtos</span>
+              <select className={inputClass} name="chatId" required defaultValue="">
+                <option disabled value="">Selecione um grupo</option>
+                {groups.map((group) => (
+                  <option key={group.chatId} value={group.chatId}>{group.name}</option>
+                ))}
+              </select>
+            </label>
+            <button className="rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200 dark:hover:bg-amber-900/40">
+              Modo dev
+            </button>
+            <p className="basis-full text-xs text-zinc-500">Enfileira produtos ativos com preço coletado, um a cada minuto. O limite global de 12 mensagens por hora permanece em vigor.</p>
+          </form>
+        )}
 
         {groups.length === 0 ? (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-            Nenhum grupo encontrado ainda. Rode <code>npm run whatsapp</code>, leia o QR code com o seu celular e o
-            worker grava aqui os grupos em que você é administrador.
+            Nenhum grupo encontrado ainda. Conecte o WhatsApp no worker e clique em “Sincronizar grupos”.
           </p>
         ) : (
           <form action={createCampaignAction} className="mt-3 space-y-4">
@@ -169,6 +251,7 @@ export default async function Automacao({
                 <div className="min-w-0">
                   <p className="font-medium">
                     {c.name}{" "}
+                    {c.devMode && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">Dev</span>}{" "}
                     <span className="text-sm font-normal text-zinc-500">
                       → {c.chatNames.length === 1 ? c.chatNames[0] : `${c.chatNames.length} grupos`}
                     </span>

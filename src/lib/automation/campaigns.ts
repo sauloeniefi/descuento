@@ -10,6 +10,7 @@ export const INTERVALO_MINIMO = 15;
 export interface Campaign {
   id: number;
   name: string;
+  devMode: boolean;
   chatIds: string[];
   chatNames: string[];
   categoryId: string | null;
@@ -55,6 +56,57 @@ export async function listGroups(userId: number): Promise<WaGroup[]> {
   return rows.map((r) => ({ chatId: r.chat_id, name: r.name, updatedAt: r.updated_at.toISOString() }));
 }
 
+export async function requestGroupsSync(userId: number) {
+  await getDb().query("INSERT INTO wa_sync_jobs (user_id, status) VALUES ($1, 'pending')", [userId]);
+}
+
+export async function requestQrCode(userId: number) {
+  const client = await getDb().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM wa_qr_jobs WHERE user_id = $1 AND status = 'pending'", [userId]);
+    await client.query("DELETE FROM wa_qr_codes WHERE user_id = $1", [userId]);
+    await client.query("INSERT INTO wa_qr_jobs (user_id, status) VALUES ($1, 'pending')", [userId]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listSyncStatus(userId: number): Promise<{ status: "Sincronizando" | "Sincronizado" | "Falha na sincronização"; error: string | null } | null> {
+  const { rows } = await getDb().query<{ status: string; error: string | null }>(
+    `SELECT CASE
+              WHEN status = 'processing' AND started_at < now() - INTERVAL '12 minutes' THEN 'failed'
+              ELSE status
+            END AS status,
+            CASE
+              WHEN status = 'processing' AND started_at < now() - INTERVAL '12 minutes'
+                THEN COALESCE(error, 'O worker parou antes de concluir a sincronização.')
+              ELSE error
+            END AS error
+       FROM wa_sync_jobs WHERE user_id = $1 ORDER BY requested_at DESC LIMIT 1`,
+    [userId],
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+  if (row.status === "pending" || row.status === "processing") return { status: "Sincronizando", error: null };
+  if (row.status === "done") return { status: "Sincronizado", error: null };
+  if (row.status === "failed") return { status: "Falha na sincronização", error: row.error };
+  return null;
+}
+
+export async function listLatestQrCode(userId: number): Promise<string | null> {
+  const { rows } = await getDb().query<{ qr_code: string }>(
+    "SELECT qr_code FROM wa_qr_codes WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
+    [userId],
+  );
+  return rows[0]?.qr_code ?? null;
+}
+
 export async function listCampaigns(userId: number): Promise<Campaign[]> {
   const { rows } = await getDb().query(
     `SELECT c.*, cat.name AS category_name FROM campaigns c
@@ -65,6 +117,7 @@ export async function listCampaigns(userId: number): Promise<Campaign[]> {
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
+    devMode: r.dev_mode,
     chatIds: r.chat_ids,
     chatNames: r.chat_names,
     categoryId: r.category_id,
@@ -82,7 +135,7 @@ export async function listCampaigns(userId: number): Promise<Campaign[]> {
   }));
 }
 
-export async function createCampaign(userId: number, c: Omit<Campaign, "id" | "categoryName" | "enabled">) {
+export async function createCampaign(userId: number, c: Omit<Campaign, "id" | "categoryName" | "enabled" | "devMode">) {
   await getDb().query(
     `INSERT INTO campaigns (user_id, name, chat_ids, chat_names, category_id, weekdays, window_start, window_end, interval_minutes, resend_hours, products_per_send, min_discount, starts_on, ends_on)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
@@ -105,8 +158,96 @@ export async function createCampaign(userId: number, c: Omit<Campaign, "id" | "c
   );
 }
 
+export async function startDevMode(userId: number, chatId: string): Promise<number> {
+  const { rows: groups } = await getDb().query<{ name: string }>(
+    "SELECT name FROM wa_groups WHERE user_id = $1 AND chat_id = $2 AND is_admin",
+    [userId, chatId],
+  );
+  if (!groups[0]) throw new Error("Selecione um grupo sincronizado em que você é administrador.");
+
+  const products = (await listProducts(userId))
+    .filter((product) => product.currentPrice != null)
+    .filter((product) => product.expiresAt == null || new Date(product.expiresAt).getTime() > Date.now())
+    .sort((a, b) => Number(b.favorite) - Number(a.favorite));
+  if (products.length === 0) throw new Error("Não há produtos ativos com preço coletado para enviar.");
+
+  const { rows: categories } = await getDb().query<{ id: string; message: string }>(
+    "SELECT id, message FROM categories WHERE user_id = $1",
+    [userId],
+  );
+
+  const db = getDb();
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `UPDATE send_queue q SET status = 'cancelled', error = 'Substituído por uma nova execução do modo dev'
+        FROM campaigns c
+       WHERE q.campaign_id = c.id AND c.user_id = $1 AND c.dev_mode AND q.status = 'pending'`,
+      [userId],
+    );
+    await client.query("UPDATE campaigns SET enabled = false WHERE user_id = $1 AND dev_mode AND enabled", [userId]);
+
+    const { rows: created } = await client.query<{ id: number }>(
+      `INSERT INTO campaigns
+         (user_id, name, chat_ids, chat_names, category_id, weekdays, window_start, window_end,
+          interval_minutes, resend_hours, products_per_send, min_discount, starts_on, ends_on, dev_mode)
+       VALUES ($1, $2, ARRAY[$3]::text[], ARRAY[$4]::text[], NULL, ARRAY[0,1,2,3,4,5,6],
+          '00:00', '23:59', 1, 24, 1, 0, current_date, current_date, true)
+       RETURNING id`,
+      [userId, `Modo dev - ${groups[0].name}`, chatId, groups[0].name],
+    );
+    const campaignId = created[0].id;
+
+    for (const [index, product] of products.entries()) {
+      const caption = buildCaption({
+        title: product.title,
+        shortName: product.shortName,
+        price: product.currentPrice!,
+        originalPrice: product.currentOriginalPrice,
+        minPrice: product.minPrice,
+        url: product.url,
+        affiliateUrl: product.affiliateUrl,
+        categoryMessage: categories.find((category) => category.id === product.categoryId)?.message ?? null,
+      });
+      await client.query(
+        `INSERT INTO send_queue (campaign_id, product_id, chat_id, caption, image_url, scheduled_at)
+         VALUES ($1, $2, $3, $4, $5, date_trunc('minute', now()) + ($6::int * INTERVAL '1 minute'))`,
+        [campaignId, product.id, chatId, caption, product.thumbnail, index + 1],
+      );
+    }
+
+    await client.query("COMMIT");
+    return products.length;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function setCampaignEnabled(userId: number, id: number, enabled: boolean) {
-  await getDb().query("UPDATE campaigns SET enabled = $1 WHERE id = $2 AND user_id = $3", [enabled, id, userId]);
+  const db = getDb();
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("UPDATE campaigns SET enabled = $1 WHERE id = $2 AND user_id = $3", [enabled, id, userId]);
+    if (!enabled) {
+      await client.query(
+        `UPDATE send_queue SET status = 'cancelled', error = 'Modo dev pausado'
+          WHERE campaign_id = $1 AND status = 'pending'
+            AND EXISTS (SELECT 1 FROM campaigns WHERE id = $1 AND user_id = $2 AND dev_mode)`,
+        [id, userId],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function deleteCampaign(userId: number, id: number) {

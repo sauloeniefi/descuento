@@ -18,7 +18,15 @@ import {
 } from "@/lib/tracker/service";
 import { createCategory, deleteCategory, updateCategory } from "@/lib/tracker/categories";
 import { getSuggestion, scanSuggestions, setSuggestionStatus } from "@/lib/tracker/suggestions";
-import { createCampaign, deleteCampaign, enqueueDueSends, setCampaignEnabled } from "@/lib/automation/campaigns";
+import {
+  createCampaign,
+  deleteCampaign,
+  enqueueDueSends,
+  requestGroupsSync,
+  requestQrCode,
+  startDevMode,
+  setCampaignEnabled,
+} from "@/lib/automation/campaigns";
 import { createApiToken } from "@/lib/tracker/api-token";
 import { requireUser } from "@/lib/auth";
 
@@ -214,6 +222,36 @@ export async function enqueueNowAction() {
   const { queued } = await enqueueDueSends();
   revalidatePath("/automacao");
   redirect(`/automacao?enfileirados=${queued}`);
+}
+
+export async function startDevModeAction(formData: FormData) {
+  const user = await requireUser();
+  const chatId = String(formData.get("chatId") ?? "");
+  let queued: number;
+
+  try {
+    queued = await startDevMode(user.id, chatId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Não foi possível iniciar o modo dev.";
+    redirect(`/automacao?devError=${encodeURIComponent(message)}`);
+  }
+
+  revalidatePath("/automacao");
+  redirect(`/automacao?dev=${queued}`);
+}
+
+export async function syncGroupsAction() {
+  const user = await requireUser();
+  await requestGroupsSync(user.id);
+  revalidatePath("/automacao");
+  redirect(`/automacao?sincronizado=1`);
+}
+
+export async function generateQrAction() {
+  const user = await requireUser();
+  await requestQrCode(user.id);
+  revalidatePath("/automacao");
+  redirect(`/automacao?qr=1`);
 }
 
 // ---- Extensão do Chrome ----

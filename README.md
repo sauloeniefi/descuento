@@ -110,7 +110,7 @@ O botão "Procurar agora" roda na hora. Para rodar sozinho, chame `POST /api/cro
 
 Cada automação tem: **um ou mais grupos**, categoria (ou todas), dias da semana, faixa do dia ("envia das 09:00 às 21:00"), **intervalo** ("a cada 60 min", mínimo 15), produtos por envio, desconto mínimo, **reenvio em X horas** (tempo até o mesmo produto poder repetir), data de início e data de fim (opcional).
 
-O site só **monta a fila**: percorre a faixa do dia de intervalo em intervalo, escolhe os produtos da categoria que estão com desconto acima do mínimo ou em oportunidade — favoritos primeiro, vencidos de fora —, monta a legenda e grava uma linha por grupo em `send_queue`. Horário que já passou é descartado, e automação que já tem fila no dia não recebe outra. Quem envia é o worker.
+O site só **monta a fila**: percorre a faixa do dia de intervalo em intervalo, escolhe os produtos da categoria que estão com desconto acima do mínimo ou em oportunidade — favoritos primeiro, vencidos de fora —, monta a legenda e grava uma linha por grupo em `send_queue`. Horário que já passou é descartado, e automação que já tem fila no dia não recebe outra. O worker do WhatsApp inicia automaticamente junto com o servidor Next e é reiniciado se encerrar inesperadamente.
 
 No seletor só aparecem os grupos em que **você é administrador**: nos outros o WhatsApp costuma recusar o envio. Quem marca isso é o worker, ao sincronizar.
 
@@ -132,12 +132,7 @@ A primeira linha é a mensagem da categoria, e o link é o de afiliado quando ex
 
 #### Worker do WhatsApp
 
-```bash
-npm i whatsapp-web.js qrcode-terminal
-WORKER_USER_ID=1 npm run whatsapp
-```
-
-Na primeira vez ele mostra um QR code: leia com o celular em "Aparelhos conectados". A sessão fica em `.wwebjs_auth/` (ignorada pelo git). Com o WhatsApp conectado, o worker grava a lista dos seus grupos (é assim que eles aparecem no seletor da página) e, a cada minuto, envia o que estiver vencido na fila. Item atrasado mais de 2 horas é descartado, para não despejar tudo de uma vez quando o worker volta.
+Inicie o site normalmente com `npm run dev` ou `npm start`. Na primeira vez, abra `/automacao` e leia o QR code com o celular em "Aparelhos conectados". A sessão fica em `.wwebjs_auth/` (ignorada pelo git). Com o WhatsApp conectado, o worker grava a lista dos seus grupos (é assim que eles aparecem no seletor da página) e, a cada minuto, envia o que estiver vencido na fila. Item atrasado mais de 2 horas é descartado, para não despejar tudo de uma vez quando o worker volta. Não inicie um segundo worker manualmente em paralelo.
 
 Ritmo de envio, todos ajustáveis por variável de ambiente:
 
@@ -217,7 +212,6 @@ Com o banco parado, o site dá erro de conexão. Para conferir o estado, use `do
 | `npm run db:down` | Desliga o Postgres (os dados ficam no volume) |
 | `npm run db:migrate` | Aplica migrations pendentes |
 | `npm run db:import` | Importa dados do SQLite antigo |
-| `npm run whatsapp` | Worker que conecta no WhatsApp e envia a fila |
 | `npm run build` / `npm start` | Build e execução em produção |
 | `npm run lint` | Roda o ESLint |
 
